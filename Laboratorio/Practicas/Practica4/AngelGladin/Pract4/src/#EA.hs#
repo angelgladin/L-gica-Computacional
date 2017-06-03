@@ -1,0 +1,70 @@
+module EA where
+
+import Data.List
+
+-- | Tipo de datos que represente el lenguaje Expresión Ariméticas.
+data EA = Const Int
+        | Var String
+        | Sum EA EA
+        | Mul EA EA
+        | Let EA EA deriving (Show)
+
+-- | Sust. Tipo que representa una sustitucion de variables en expresiones.
+type Sust = (String, EA)
+
+-- | State. Tipo que representa el estado de una variable en la memoria
+-- de la maquina. Se observa que este tipo es un tipo funcion.
+type State = String -> Int
+
+-- | eval. Función de evalución que dada un EA y 'State' realiza la
+-- evaluación de dicha expresión.
+-- --> eval (Const 666) (\"x"->1) = 666
+-- --> eval (Var "x") (\"x"->10) = 10
+-- --> eval (Sum (Const 2) (Var "x")) (\"x"->1) = 3
+-- --> eval (Let (Var "x") (Sum (Var "x") (Var "x"))) (\"x"->1) = 2
+eval :: EA -> State -> Int
+eval (Const n) _ = n
+eval (Var x) s = s x
+eval (Sum e1 e2) s = (eval e1 s) + (eval e2 s)
+eval (Mul e1 e2) s = (eval e1 s) * (eval e2 s)
+eval e@(Let e1 e2) s = eval (elimLet e s) s
+
+-- | elimLet. Función que elimina la expresión 'let' de tal forma que la
+-- expresión e dada como parámetro sea equivalete a elimLet(e).
+-- --> elimLet (Let (Var "x") (Sum (Var "x") (Var "x"))) (\"x"->1) 
+--                = Sum (Const 1) (Const 1)
+-- --> elimLet (Let (Const 3) (Var "x")) (\"x"->1) = Const 3
+elimLet :: EA -> State -> EA
+elimLet (Let e1 e2) s = 
+  let evaluado = eval e1 s
+      var_str = head $ varLibres e2
+  in sust e2 (var_str, Const evaluado)
+
+-- | varLibres. Función auxiliar que devuelve las variables libres
+-- del lenguaje Expresión Aritméticas.
+-- --> varLibres (Sum (Var "x") (Var "x")) = ["x"] 
+-- --> varLibres (Const 2) = [] 
+varLibres :: EA -> [String]
+varLibres (Const n) = []
+varLibres (Var x) = [x]
+varLibres (Sum e1 e2) = nub $ (varLibres e1) ++ (varLibres e2)
+varLibres (Mul e1 e2) = nub $ (varLibres e1) ++ (varLibres e2)
+varLibres (Let e1 e2) = nub $ (varLibres e1) ++ (varLibres e2)
+
+-- | sust. Función que realiza la sustitución, es decir, dado un elemento
+-- e1 de tipo EA y una sustitución la función devuelva e1[x := e2]
+-- Observación: En el caso de captura de variables libres, devolver error.
+-- Es decir, si
+-- y ∈ {x} ∪ FV(e1) devolver error "No es posible hacer sustitución.".
+-- --> sust (Let (Var "x") (Var "x")) ("x", Const 1) = Let (Const 1) (Const 1)
+-- --> sust (Sum (Const 3) (Var "x")) ("x", Const 666) = Sum (Const 3) (Const 666)
+sust :: EA -> Sust -> EA
+sust e1 (s, e) = if s `elem` (varLibres e1) || null (varLibres e1)
+                 then sust_aux e1 (s, e)
+                 else error "No es posible hacer sustitución."
+  where sust_aux e@(Const i) _ = e
+        sust_aux (Var x) (s, e) = if (s == x) then e
+                                  else error "No es posible hacer sustitución." 
+        sust_aux (Sum e1 e2) s = Sum (sust_aux e1 s) (sust_aux e2 s)
+        sust_aux (Mul e1 e2) s = Mul (sust_aux e1 s) (sust_aux e2 s)
+        sust_aux (Let e1 e2) s = Let (sust_aux e1 s) (sust_aux e2 s )
